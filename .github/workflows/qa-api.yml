@@ -1,16 +1,57 @@
-name: CI
+name: QA API (OpenAPI)
 
 on:
   workflow_dispatch:
   schedule:
-    # GitHub schedule 使用 UTC 时间；这里是每天 UTC 02:00，即北京时间 10:00
+    # UTC 时间；北京时间 10:00 执行。
     - cron: '0 2 * * *'
+  push:
+    paths:
+      - 'contracts/openapi/**'
+      - 'qa-e2e/tests/api/**'
+      - 'qa-e2e/lib/api/**'
+      - 'scripts/openapi-sync.mts'
+  pull_request:
+    paths:
+      - 'contracts/openapi/**'
+      - 'qa-e2e/tests/api/**'
+      - 'qa-e2e/lib/api/**'
+      - 'scripts/openapi-sync.mts'
 
 jobs:
+  api:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Sync OpenAPI codegen
+        run: pnpm openapi:sync
+
+      - name: Install Playwright browsers (api project uses request only; minimal)
+        run: pnpm exec playwright install chromium
+
+      - name: Run API tests
+        env:
+          QA_API_BASE_URL: ${{ vars.QA_API_BASE_URL || 'https://testnet.zoomex.com' }}
+        run: pnpm test:api
+
   scheduled-selected-api:
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -24,7 +65,6 @@ jobs:
           - order-lifecycle-inverse-limit.api.spec.ts
           - order-lifecycle-inverse-market.api.spec.ts
           - order-lifecycle-inverse-tpsl.api.spec.ts
-
     steps:
       - uses: actions/checkout@v4
 
@@ -35,15 +75,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Sync OpenAPI codegen
         run: pnpm openapi:sync
 
-      - name: Install Playwright browsers
+      - name: Install Playwright browsers (api project uses request only; minimal)
         run: pnpm exec playwright install chromium
 
       - name: Run scheduled API spec

@@ -1,0 +1,371 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Zoomex Asset Service (QA contract)",
+    "description": "出入金 / 资产相关 REST 契约（QA 用例驱动）。\n路径与字段可在联调时替换为研发正式文档；更新后运行 `pnpm openapi:sync`。\n",
+    "version": "3.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://ls-trade-openapi-ls-test-1.test.efficiency.ww5sawfyut0k.bitsvc.io",
+      "description": "test3"
+    },
+    {
+      "url": "https://openapi-testnet.zoomex.com",
+      "description": "testnet"
+    },
+    {
+      "url": "https://openapi.zoomex.com",
+      "description": "prd"
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/asset/v1/health": {
+      "get": {
+        "operationId": "getAssetHealth",
+        "summary": "资产服务健康检查",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "服务可用",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/asset/v1/withdraw/config": {
+      "get": {
+        "operationId": "getWithdrawConfig",
+        "summary": "查询提币链配置（最小提币、手续费等）",
+        "parameters": [
+          {
+            "name": "coin",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "USDT"
+            }
+          },
+          {
+            "name": "chain",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "TRC20"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "配置查询成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "retCode",
+                    "result"
+                  ],
+                  "properties": {
+                    "retCode": {
+                      "type": "integer"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "minWithdraw": {
+                          "type": "number",
+                          "description": "最小提币金额"
+                        },
+                        "withdrawFee": {
+                          "type": "number",
+                          "description": "提币手续费"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "retCode",
+                    "retMsg"
+                  ],
+                  "properties": {
+                    "retCode": {
+                      "type": "integer"
+                    },
+                    "retMsg": {
+                      "type": "string",
+                      "description": "用户可见错误，如「订单错误」「无法退回」"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/asset/v1/withdraw/refund": {
+      "post": {
+        "operationId": "postWithdrawRefund",
+        "summary": "提币失败资金退回",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "orderId",
+                  "uid"
+                ],
+                "properties": {
+                  "orderId": {
+                    "type": "string"
+                  },
+                  "uid": {
+                    "type": "string"
+                  },
+                  "refundAmount": {
+                    "type": "number",
+                    "description": "退回金额，应为到账金额 + 手续费"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "退回成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "retCode"
+                  ],
+                  "properties": {
+                    "retCode": {
+                      "type": "integer",
+                      "example": 0
+                    },
+                    "result": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "业务校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "retCode",
+                    "retMsg"
+                  ],
+                  "properties": {
+                    "retCode": {
+                      "type": "integer"
+                    },
+                    "retMsg": {
+                      "type": "string",
+                      "description": "用户可见错误，如「订单错误」「无法退回」"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未授权",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "retCode",
+                    "retMsg"
+                  ],
+                  "properties": {
+                    "retCode": {
+                      "type": "integer"
+                    },
+                    "retMsg": {
+                      "type": "string",
+                      "description": "用户可见错误，如「订单错误」「无法退回」"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "未授权",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "retCode",
+                "retMsg"
+              ],
+              "properties": {
+                "retCode": {
+                  "type": "integer"
+                },
+                "retMsg": {
+                  "type": "string",
+                  "description": "用户可见错误，如「订单错误」「无法退回」"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          }
+        }
+      },
+      "WithdrawConfigResponse": {
+        "type": "object",
+        "required": [
+          "retCode",
+          "result"
+        ],
+        "properties": {
+          "retCode": {
+            "type": "integer"
+          },
+          "result": {
+            "type": "object",
+            "properties": {
+              "minWithdraw": {
+                "type": "number",
+                "description": "最小提币金额"
+              },
+              "withdrawFee": {
+                "type": "number",
+                "description": "提币手续费"
+              }
+            }
+          }
+        }
+      },
+      "WithdrawRefundRequest": {
+        "type": "object",
+        "required": [
+          "orderId",
+          "uid"
+        ],
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "uid": {
+            "type": "string"
+          },
+          "refundAmount": {
+            "type": "number",
+            "description": "退回金额，应为到账金额 + 手续费"
+          }
+        }
+      },
+      "WithdrawRefundSuccess": {
+        "type": "object",
+        "required": [
+          "retCode"
+        ],
+        "properties": {
+          "retCode": {
+            "type": "integer",
+            "example": 0
+          },
+          "result": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "required": [
+          "retCode",
+          "retMsg"
+        ],
+        "properties": {
+          "retCode": {
+            "type": "integer"
+          },
+          "retMsg": {
+            "type": "string",
+            "description": "用户可见错误，如「订单错误」「无法退回」"
+          }
+        }
+      }
+    }
+  }
+}

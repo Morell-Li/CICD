@@ -1,0 +1,19 @@
+# qa-kit (added by qa-kit init)
+.env
+env/.env.test3
+env/.env.testnet
+env/.env.prd
+# 产物目录：除 README 外全部忽略（大文件不进 Git；保留 README 便于 IDE 显示 qa-results/）
+qa-results/*
+!qa-results/README.md
+qa-e2e/qa-results/*
+.qa-kit/auth/
+.qa-kit/metrics/
+test-results/
+playwright-report/
+allure-results/
+qa-e2e/allure-results/
+qa-e2e/test-results/
+qa-e2e/playwright-report/
+qa-e2e/recordings/
+.DS_Store

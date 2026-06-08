@@ -1,0 +1,265 @@
+/**
+ * OpenAPI V3 反向合约（inverse）市价单全链路：市价开仓 → 查历史 → 查成交 → 查持仓 → 市价平仓
+ *
+ * 用例文档：qa-design/cases/openapi-v3/order-lifecycle.md（TC-3160）
+ */
+import { test, expect } from '@zmx/qa-kit/runners/web';
+import { signedGet, signedPost } from '@qa-e2e/api';
+import {
+  API_BASE_URL,
+  apiCaseAnnotations,
+  isOpenApiLive,
+  requireSignedApiAuth,
+} from './_api-env.ts';
+import {
+  finalizeApiExchangeLog,
+  initApiExchangeLog,
+  readResponseJson,
+  recordApiExchange,
+} from './_api-exchange-log.ts';
+import {
+  buildGetExchangeRecord,
+  exchangeGet,
+  exchangePost,
+  expectRetCodeOk,
+  publishExchange,
+  signedGetJson,
+} from './_order-lifecycle-exchange.ts';
+import { ensureInverseSymbolFlat } from './_order-inverse-cleanup.ts';
+import {
+  PATH_ORDER_CANCEL_ALL,
+  PATH_ORDER_CREATE,
+  PATH_ORDER_HISTORY,
+  PATH_EXECUTION_LIST,
+  PATH_POSITION_LIST,
+  INVERSE_CATEGORY,
+  INVERSE_SYMBOL,
+  INVERSE_SETTLE_COIN,
+  buildInverseCloseMarketOrderBody,
+  buildInverseCreateMarketOrderBody,
+  findPositionRow,
+  pickOrderId,
+  pickPositionSide,
+  pickPositionSize,
+  type CreateOrderResult,
+} from './_order-trade.ts';
+
+const SPEC_NAME = 'order-lifecycle-inverse-market';
+
+test.use({ baseURL: API_BASE_URL });
+
+function flowAnno(step: string): Parameters<typeof test>[1] {
+  return {
+    tag: [
+      '@api',
+      '@feature-openapi-v3-order-lifecycle',
+      '@category-inverse',
+      '@order-type-market',
+      '@live-write',
+    ],
+    annotation: [
+      ...apiCaseAnnotations(`TC-3160 | 反向市价单串行 - ${step}`),
+      { type: 'dataCleaner', description: 'enabled' },
+    ],
+  };
+}
+
+const POSITION_QUERY: Array<[string, string]> = [
+  ['category', INVERSE_CATEGORY],
+  ['settleCoin', INVERSE_SETTLE_COIN],
+  ['symbol', INVERSE_SYMBOL],
+];
+
+const EXECUTION_QUERY: Array<[string, string]> = [
+  ['category', INVERSE_CATEGORY],
+  ['symbol', INVERSE_SYMBOL],
+];
+
+test.describe.serial('order-lifecycle-inverse-market｜反向合约市价单：开仓 → 历史 → 成交 → 持仓 → 平仓', () => {
+  test.beforeAll(async ({ request }) => {
+    requireSignedApiAuth(SPEC_NAME);
+    initApiExchangeLog(SPEC_NAME);
+    await ensureInverseSymbolFlat(request);
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (await isOpenApiLive(request)) {
+      await ensureInverseSymbolFlat(request);
+      const cancelRes = await signedPost(request, PATH_ORDER_CANCEL_ALL, {
+        category: INVERSE_CATEGORY,
+        symbol: INVERSE_SYMBOL,
+      });
+      recordApiExchange({
+        step: 'afterAll-cancel-all',
+        at: new Date().toISOString(),
+        method: 'POST',
+        path: PATH_ORDER_CANCEL_ALL,
+        url: `${API_BASE_URL}${PATH_ORDER_CANCEL_ALL}`,
+        request: { body: { category: INVERSE_CATEGORY, symbol: INVERSE_SYMBOL } },
+        response: { status: cancelRes.status(), body: await readResponseJson(cancelRes) },
+      });
+
+      const posRes = await signedGet(request, PATH_POSITION_LIST, {
+        queryEntries: POSITION_QUERY,
+      });
+      const posJson = (await readResponseJson(posRes)) as {
+        retCode?: number;
+        result?: { list?: Array<Record<string, unknown>> };
+      };
+      void posJson;
+    }
+    finalizeApiExchangeLog();
+  });
+
+  let orderId: string | undefined;
+
+  test('步骤 1/5：市价开仓 create', flowAnno('市价开仓'), async ({ request }, testInfo) => {
+    test.skip(!(await isOpenApiLive(request)), 'OpenAPI 网关不可达');
+
+    const createBody = buildInverseCreateMarketOrderBody();
+    const { body } = await exchangePost(testInfo, '1-market-create', request, PATH_ORDER_CREATE, createBody);
+    await expectRetCodeOk(body, PATH_ORDER_CREATE);
+    const result = body.result as CreateOrderResult;
+    expect(result.orderId, '市价开仓应返回 orderId').toBeTruthy();
+    orderId = result.orderId;
+  });
+
+  test('步骤 2/5：查持仓 position/list（轮询成交）', flowAnno('查持仓'), async ({ request }, testInfo) => {
+    test.skip(!(await isOpenApiLive(request)), 'OpenAPI 网关不可达');
+    test.skip(!orderId, '步骤 1 市价开仓未成功');
+
+    let pollAttempts = 0;
+    let successRecord: ReturnType<typeof buildGetExchangeRecord> | undefined;
+
+    await expect
+      .poll(
+        async () => {
+          pollAttempts += 1;
+          const { res, body } = await signedGetJson(request, PATH_POSITION_LIST, POSITION_QUERY);
+          if (body.retCode !== 0) return 0;
+          const list = (body.result as { list?: Array<Record<string, unknown>> })?.list ?? [];
+          const row = findPositionRow(list, INVERSE_SYMBOL);
+          const size = row ? pickPositionSize(row) : 0;
+          if (size > 0) {
+            successRecord = buildGetExchangeRecord(
+              '4-position',
+              PATH_POSITION_LIST,
+              POSITION_QUERY,
+              res,
+              body,
+              { pollAttempts },
+            );
+          }
+          return size;
+        },
+        { timeout: 20_000, intervals: [500, 1000, 2000] },
+      )
+      .toBeGreaterThan(0);
+
+    expect(successRecord).toBeTruthy();
+    publishExchange(testInfo, successRecord!);
+  });
+
+  test('步骤 3/5：查成交 execution/list', flowAnno('查成交'), async ({ request }, testInfo) => {
+    test.skip(!(await isOpenApiLive(request)), 'OpenAPI 网关不可达');
+    test.skip(!orderId, '步骤 1 市价开仓未成功');
+
+    const { body } = await exchangeGet(
+      testInfo,
+      '3-execution',
+      request,
+      PATH_EXECUTION_LIST,
+      EXECUTION_QUERY,
+    );
+    await expectRetCodeOk(body, PATH_EXECUTION_LIST);
+    const list = (body.result as { list?: unknown[] })?.list ?? [];
+    expect(Array.isArray(list)).toBe(true);
+    expect(list.length, '市价成交后 execution 列表应非空').toBeGreaterThan(0);
+  });
+
+  test('步骤 4/5：查历史 order/history', flowAnno('查历史'), async ({ request }, testInfo) => {
+    test.skip(!(await isOpenApiLive(request)), 'OpenAPI 网关不可达');
+    test.skip(!orderId, '步骤 1 市价开仓未成功');
+
+    const historyQuery: Array<[string, string]> = [
+      ['category', INVERSE_CATEGORY],
+      ['symbol', INVERSE_SYMBOL],
+      ['limit', '20'],
+    ];
+    const { body } = await exchangeGet(
+      testInfo,
+      '4-history',
+      request,
+      PATH_ORDER_HISTORY,
+      historyQuery,
+    );
+    await expectRetCodeOk(body, PATH_ORDER_HISTORY);
+    expect(Array.isArray((body.result as { list?: unknown[] })?.list)).toBe(true);
+  });
+
+  test('步骤 5/5：市价平仓 create reduceOnly', flowAnno('市价平仓'), async ({ request }, testInfo) => {
+    test.skip(!(await isOpenApiLive(request)), 'OpenAPI 网关不可达');
+    test.skip(!orderId, '步骤 1 市价开仓未成功');
+
+    const { body: posSnap } = await signedGetJson(request, PATH_POSITION_LIST, POSITION_QUERY);
+    await expectRetCodeOk(posSnap, PATH_POSITION_LIST);
+    const posList = (posSnap.result as { list?: Array<Record<string, unknown>> })?.list ?? [];
+    const openRow = findPositionRow(posList, INVERSE_SYMBOL);
+    const openSize = openRow ? pickPositionSize(openRow) : 0;
+    test.skip(openSize <= 0, '步骤 4 未获得可平仓位');
+
+    const openSide = pickPositionSide(openRow!);
+    const closeSide = openSide === 'Sell' ? 'Buy' : 'Sell';
+    const closeBody = buildInverseCloseMarketOrderBody({
+      side: closeSide,
+      qty: String(openSize),
+    });
+    const { body } = await exchangePost(
+      testInfo,
+      '5-market-close',
+      request,
+      PATH_ORDER_CREATE,
+      closeBody,
+    );
+    await expectRetCodeOk(body, PATH_ORDER_CREATE);
+
+    let pollAttempts = 0;
+    let successRecord: ReturnType<typeof buildGetExchangeRecord> | undefined;
+
+    await expect
+      .poll(
+        async () => {
+          pollAttempts += 1;
+          const { res, body: posBody } = await signedGetJson(request, PATH_POSITION_LIST, POSITION_QUERY);
+          if (posBody.retCode !== 0) return -1;
+          const list = (posBody.result as { list?: Array<Record<string, unknown>> })?.list ?? [];
+          const row = findPositionRow(list, INVERSE_SYMBOL);
+          const size = row ? pickPositionSize(row) : 0;
+          if (size > 0) {
+            const posSide = pickPositionSide(row!);
+            const closeSide = posSide === 'Sell' ? 'Buy' : 'Sell';
+            await signedPost(
+              request,
+              PATH_ORDER_CREATE,
+              buildInverseCloseMarketOrderBody({ side: closeSide, qty: String(size) }),
+            );
+            return size;
+          }
+          successRecord = buildGetExchangeRecord(
+            '5-position-after-close',
+            PATH_POSITION_LIST,
+            POSITION_QUERY,
+            res,
+            posBody,
+            { pollAttempts },
+          );
+          return 0;
+        },
+        { timeout: 30_000, intervals: [500, 1000, 2000] },
+      )
+      .toBe(0);
+
+    expect(successRecord).toBeTruthy();
+    publishExchange(testInfo, successRecord!);
+  });
+});

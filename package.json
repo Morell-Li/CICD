@@ -1,0 +1,56 @@
+{
+  "name": "AI",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "pnpm@10.33.4",
+  "type": "module",
+  "imports": {
+    "@qa-e2e/api": "./qa-e2e/lib/api/index.ts",
+    "@qa-e2e/api/signed-request": "./qa-e2e/lib/api/signed-request.ts",
+    "@qa-e2e/api/*": "./qa-e2e/lib/api/*",
+    "@qa-e2e/*": "./qa-e2e/lib/*"
+  },
+  "description": "qa-kit consumer project",
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
+    "@playwright/test": "^1.55.0",
+    "@types/k6": "^1.2.0",
+    "@types/node": "^25.6.0",
+    "@zmx/aibundle": "^0.3.0",
+    "@zmx/qa-kit": "^0.2.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "allure-playwright": "^3.0.0",
+    "husky": "^9.1.0",
+    "openapi-fetch": "^0.17.0",
+    "openapi-typescript": "^7.13.0",
+    "tsx": "^4.22.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "diff": ">=8.0.3"
+    }
+  },
+  "scripts": {
+    "qa:doctor": "qa-kit doctor",
+    "qa:validate": "qa-kit validate",
+    "qa:summary": "qa-kit report summary",
+    "qa:metrics": "qa-kit report metrics",
+    "qa:clean": "rm -rf qa-results",
+    "postinstall": "qa-kit bootstrap",
+    "prepare": "husky",
+    "test": "cd qa-e2e && playwright test",
+    "test:e2e": "cd qa-e2e && playwright test",
+    "test:ui": "cd qa-e2e && playwright test --ui",
+    "test:debug": "cd qa-e2e && playwright test --debug",
+    "allure:report": "allure generate qa-results/e2e/allure-results --clean -o qa-results/e2e/allure-report && allure open qa-results/e2e/allure-report",
+    "qa:design-review": "qa-kit eval run --preset test-case-design",
+    "openapi:sync": "tsx scripts/openapi-sync.mts",
+    "openapi:codegen": "tsx scripts/openapi-sync.mts",
+    "openapi:gen-cases": "tsx scripts/gen-cases-from-openapi.mts",
+    "test:api": "cd qa-e2e && playwright test --project=api",
+    "test:api:test3": "cd qa-e2e && QA_ENV=test3 playwright test --project=api",
+    "test:api:testnet": "cd qa-e2e && QA_ENV=testnet playwright test --project=api",
+    "test:api:prd": "cd qa-e2e && QA_ENV=prd playwright test --project=api"
+  }
+}

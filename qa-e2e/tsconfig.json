@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@qa-e2e/api": ["./lib/api/index.ts"],
+      "@qa-e2e/api/signed-request": ["./lib/api/signed-request.ts"],
+      "@qa-e2e/api/*": ["./lib/api/*"],
+      "@qa-e2e/*": ["./lib/*"]
+    },
+    "types": ["node", "@playwright/test"]
+  },
+  "include": ["tests/**/*.ts", "lib/**/*.ts"]
+}
