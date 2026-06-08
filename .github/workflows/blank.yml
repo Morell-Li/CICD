@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub schedule 使用 UTC 时间；这里是每天 UTC 02:00，即北京时间 10:00
+    - cron: '0 2 * * *'
+
+jobs:
+  scheduled-selected-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        spec:
+          - order-lifecycle-spot-limit.api.spec.ts
+          - order-lifecycle-spot-market.api.spec.ts
+          - order-lifecycle-linear-limit.api.spec.ts
+          - order-lifecycle-linear-market.api.spec.ts
+          - order-lifecycle-linear-tpsl.api.spec.ts
+          - order-lifecycle-inverse-limit.api.spec.ts
+          - order-lifecycle-inverse-market.api.spec.ts
+          - order-lifecycle-inverse-tpsl.api.spec.ts
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync OpenAPI codegen
+        run: pnpm openapi:sync
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium
+
+      - name: Run scheduled API spec
+        env:
+          QA_ENV: testnet
+          QA_API_KEY: ${{ secrets.ZOOMEX_TESTNET_API_KEY }}
+          QA_API_SECRET: ${{ secrets.ZOOMEX_TESTNET_API_SECRET }}
+          QA_API_POSITION_MODE: ${{ vars.QA_API_POSITION_MODE || 'oneway' }}
+          QA_API_MARKET_ORDER_QTY: ${{ vars.QA_API_MARKET_ORDER_QTY || '' }}
+          QA_API_ORDER_PRICE: ${{ vars.QA_API_ORDER_PRICE || '' }}
+          QA_API_ORDER_AMEND_PRICE: ${{ vars.QA_API_ORDER_AMEND_PRICE || '' }}
+        run: cd qa-e2e && pnpm exec playwright test --project=api "tests/api/${{ matrix.spec }}"
