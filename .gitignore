@@ -1,5 +1,6 @@
 # qa-kit (added by qa-kit init)
 .env
+node_modules/
 env/.env.test3
 env/.env.testnet
 env/.env.prd
