@@ -16,8 +16,8 @@
     "@playwright/test": "^1.55.0",
     "@types/k6": "^1.2.0",
     "@types/node": "^25.6.0",
-    "@zmx/aibundle": "^0.3.0",
-    "@zmx/qa-kit": "^0.2.1",
+    "@zmx/aibundle": "file:vendor/npm/zmx-aibundle-0.3.0.tgz",
+    "@zmx/qa-kit": "file:vendor/npm/zmx-qa-kit-0.2.1.tgz",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "allure-playwright": "^3.0.0",
@@ -28,6 +28,7 @@
   },
   "pnpm": {
     "overrides": {
+      "@zmx/tools-config": "file:vendor/npm/zmx-tools-config-1.0.0.tgz",
       "diff": ">=8.0.3"
     }
   },

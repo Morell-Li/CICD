@@ -5,6 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
+  '@zmx/tools-config': file:vendor/npm/zmx-tools-config-1.0.0.tgz
   diff: '>=8.0.3'
 
 importers:
@@ -24,11 +25,11 @@ importers:
         specifier: ^25.6.0
         version: 25.6.0
       '@zmx/aibundle':
-        specifier: ^0.3.0
-        version: 0.3.0
+        specifier: file:vendor/npm/zmx-aibundle-0.3.0.tgz
+        version: file:vendor/npm/zmx-aibundle-0.3.0.tgz
       '@zmx/qa-kit':
-        specifier: ^0.2.1
-        version: 0.2.1(@playwright/test@1.59.1)(zod@4.4.1)
+        specifier: file:vendor/npm/zmx-qa-kit-0.2.1.tgz
+        version: file:vendor/npm/zmx-qa-kit-0.2.1.tgz(@playwright/test@1.59.1)(zod@4.4.1)
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
@@ -338,13 +339,15 @@ packages:
   '@types/node@25.6.0':
     resolution: {integrity: sha512-+qIYRKdNYJwY3vRCZMdJbPLJAtGjQBudzZzdzwQYkEPQd+PJGixUL5QfvCLDaULoLv+RhT3LDkwEfKaAkgSmNQ==}
 
-  '@zmx/aibundle@0.3.0':
-    resolution: {integrity: sha512-2cFQazRud37X+AJH+orn0iLPS5nQVo1l7zjakfzXISvEK37D6iPcsEO4El4tIrhFo2yfZS/fPTXblKR3TGk9zQ==}
+  '@zmx/aibundle@file:vendor/npm/zmx-aibundle-0.3.0.tgz':
+    resolution: {integrity: sha512-2cFQazRud37X+AJH+orn0iLPS5nQVo1l7zjakfzXISvEK37D6iPcsEO4El4tIrhFo2yfZS/fPTXblKR3TGk9zQ==, tarball: file:vendor/npm/zmx-aibundle-0.3.0.tgz}
+    version: 0.3.0
     engines: {node: '>=18'}
     hasBin: true
 
-  '@zmx/qa-kit@0.2.1':
-    resolution: {integrity: sha512-aailxY9XpzJdP9qR/FHeXIqW2rDa/y53ryGuwX+W6cfXUMMfquZrppvOhGiRECOcxNp1/hpi6oOgkzcBt3zT3Q==}
+  '@zmx/qa-kit@file:vendor/npm/zmx-qa-kit-0.2.1.tgz':
+    resolution: {integrity: sha512-aailxY9XpzJdP9qR/FHeXIqW2rDa/y53ryGuwX+W6cfXUMMfquZrppvOhGiRECOcxNp1/hpi6oOgkzcBt3zT3Q==, tarball: file:vendor/npm/zmx-qa-kit-0.2.1.tgz}
+    version: 0.2.1
     engines: {node: '>=20.19.0'}
     hasBin: true
     peerDependencies:
@@ -353,8 +356,9 @@ packages:
       '@playwright/test':
         optional: true
 
-  '@zmx/tools-config@1.0.0':
-    resolution: {integrity: sha512-1QiCHH/hvXaAiVXbuLPTnM24586LmDSlmfvvI0EJferxG0POYLRb7MSXP4ww0b9F3R3QIrglYX8xx7YE7wYgfg==}
+  '@zmx/tools-config@file:vendor/npm/zmx-tools-config-1.0.0.tgz':
+    resolution: {integrity: sha512-1QiCHH/hvXaAiVXbuLPTnM24586LmDSlmfvvI0EJferxG0POYLRb7MSXP4ww0b9F3R3QIrglYX8xx7YE7wYgfg==, tarball: file:vendor/npm/zmx-tools-config-1.0.0.tgz}
+    version: 1.0.0
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
@@ -1346,7 +1350,7 @@ snapshots:
     dependencies:
       undici-types: 7.19.2
 
-  '@zmx/aibundle@0.3.0':
+  '@zmx/aibundle@file:vendor/npm/zmx-aibundle-0.3.0.tgz':
     dependencies:
       commander: 14.0.3
       diff: 9.0.0
@@ -1355,13 +1359,13 @@ snapshots:
       js-yaml: 4.1.1
       smol-toml: 1.6.1
 
-  '@zmx/qa-kit@0.2.1(@playwright/test@1.59.1)(zod@4.4.1)':
+  '@zmx/qa-kit@file:vendor/npm/zmx-qa-kit-0.2.1.tgz(@playwright/test@1.59.1)(zod@4.4.1)':
     dependencies:
       '@clack/prompts': 1.3.0
       '@grpc/grpc-js': 1.14.3
       '@grpc/proto-loader': 0.8.1
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.1)
-      '@zmx/tools-config': 1.0.0
+      '@zmx/tools-config': file:vendor/npm/zmx-tools-config-1.0.0.tgz
       commander: 14.0.3
       diff: 9.0.0
       picocolors: 1.1.1
@@ -1376,7 +1380,7 @@ snapshots:
       - supports-color
       - zod
 
-  '@zmx/tools-config@1.0.0':
+  '@zmx/tools-config@file:vendor/npm/zmx-tools-config-1.0.0.tgz':
     dependencies:
       defu: 6.1.7
       jiti: 2.7.0
