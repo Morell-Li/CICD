@@ -56,4 +56,4 @@ jobs:
           QA_API_MARKET_ORDER_QTY: ${{ vars.QA_API_MARKET_ORDER_QTY || '' }}
           QA_API_ORDER_PRICE: ${{ vars.QA_API_ORDER_PRICE || '' }}
           QA_API_ORDER_AMEND_PRICE: ${{ vars.QA_API_ORDER_AMEND_PRICE || '' }}
-        run: cd qa-e2e && pnpm exec playwright test --project=api "tests/api/${{ matrix.spec }}"
+        run: pnpm exec playwright test --config=qa-e2e/playwright.config.ts --project=api "qa-e2e/tests/api/${{ matrix.spec }}"
