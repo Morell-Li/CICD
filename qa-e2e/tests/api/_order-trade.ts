@@ -37,8 +37,8 @@ export const INVERSE_MARKET_OPEN_SIDE =
 export const INVERSE_MARKET_CLOSE_SIDE =
   process.env['QA_API_INVERSE_MARKET_CLOSE_SIDE']?.trim() || 'Buy';
 
-export const ORDER_SYMBOL = process.env['QA_API_ORDER_SYMBOL']?.trim() || 'XRPUSDT';
-export const ORDER_QTY = process.env['QA_API_ORDER_QTY']?.trim() || '5';
+export const ORDER_SYMBOL = process.env['QA_API_ORDER_SYMBOL']?.trim() || 'ETHUSDT';
+export const ORDER_QTY = process.env['QA_API_ORDER_QTY']?.trim() || '0.01';
 
 export const SPOT_CATEGORY = 'spot';
 export const SPOT_SYMBOL = process.env['QA_API_SPOT_SYMBOL']?.trim() || ORDER_SYMBOL;
@@ -57,14 +57,16 @@ export const SPOT_MARKET_OPEN_SIDE = process.env['QA_API_SPOT_MARKET_OPEN_SIDE']
 export const SPOT_MARKET_CLOSE_SIDE = process.env['QA_API_SPOT_MARKET_CLOSE_SIDE']?.trim() || 'Sell';
 export const SPOT_BASE_COIN =
   process.env['QA_API_SPOT_BASE_COIN']?.trim() || spotBaseCoinFromSymbol(SPOT_SYMBOL);
-export const ORDER_PRICE = process.env['QA_API_ORDER_PRICE']?.trim() || '2';
+export const ORDER_PRICE = process.env['QA_API_ORDER_PRICE']?.trim() || '5000';
 export const ORDER_SIDE = process.env['QA_API_ORDER_SIDE']?.trim() || 'Sell';
 export const ORDER_TIME_IN_FORCE = process.env['QA_API_ORDER_TIME_IN_FORCE']?.trim() || 'GTC';
 export const ORDER_SETTLE_COIN = process.env['QA_API_ORDER_SETTLE_COIN']?.trim() || 'USDT';
 export const ORDER_POSITION_MODE =
   process.env['QA_API_POSITION_MODE']?.trim().toLowerCase() || 'oneway';
+export const INVERSE_POSITION_MODE =
+  process.env['QA_API_INVERSE_POSITION_MODE']?.trim().toLowerCase() || 'oneway';
 
-/** 市价单数量：Testnet 最小名义价值约 5 USDT，XRPUSDT 需 qty≥5 */
+/** 市价单数量：Testnet 最小名义价值约 5 USDT；ETHUSDT 默认 0.01 */
 export const MARKET_ORDER_QTY = process.env['QA_API_MARKET_ORDER_QTY']?.trim() || ORDER_QTY;
 export const MARKET_OPEN_SIDE = process.env['QA_API_MARKET_OPEN_SIDE']?.trim() || 'Buy';
 export const MARKET_CLOSE_SIDE = process.env['QA_API_MARKET_CLOSE_SIDE']?.trim() || 'Sell';
@@ -78,7 +80,7 @@ export const SL_OFFSET_RATIO = Number(process.env['QA_API_SL_OFFSET_RATIO'] ?? '
 
 export type CreateOrderResult = { orderId?: string; orderLinkId?: string };
 
-/** Testnet 业务入参：XRPUSDT 市价开仓（无 price / timeInForce） */
+/** Testnet 业务入参：linear 市价开仓（无 price / timeInForce） */
 export function spotBaseCoinFromSymbol(symbol: string): string {
   if (symbol.endsWith('USDT')) return symbol.slice(0, -4);
   if (symbol.endsWith('USDC')) return symbol.slice(0, -4);
@@ -87,6 +89,13 @@ export function spotBaseCoinFromSymbol(symbol: string): string {
 
 export function positionIdxForOrderSide(side: string): number {
   if (ORDER_POSITION_MODE === 'hedge') {
+    return side === 'Buy' ? 1 : 2;
+  }
+  return 0;
+}
+
+export function inversePositionIdxForOrderSide(side: string): number {
+  if (INVERSE_POSITION_MODE === 'hedge') {
     return side === 'Buy' ? 1 : 2;
   }
   return 0;
@@ -111,7 +120,7 @@ export function buildInverseLimitOrderBody(
     side,
     orderType: 'Limit',
     price: INVERSE_LIMIT_PRICE,
-    positionIdx: positionIdxForOrderSide(side),
+    positionIdx: inversePositionIdxForOrderSide(side),
     qty: INVERSE_QTY,
     timeInForce: ORDER_TIME_IN_FORCE,
     orderLinkId: `qa-inverse-limit-v3-${Date.now()}`,
@@ -129,7 +138,7 @@ export function buildInverseCreateMarketOrderBody(
     symbol: INVERSE_SYMBOL,
     side,
     orderType: 'Market',
-    positionIdx: positionIdxForOrderSide(side),
+    positionIdx: inversePositionIdxForOrderSide(side),
     qty: INVERSE_QTY,
     reduceOnly: false,
     closeOnTrigger: false,
@@ -144,7 +153,7 @@ export function buildInverseCloseMarketOrderBody(
 ): Record<string, unknown> {
   return buildInverseCreateMarketOrderBody({
     side: INVERSE_MARKET_CLOSE_SIDE,
-    positionIdx: positionIdxForOrderSide(INVERSE_MARKET_OPEN_SIDE),
+    positionIdx: inversePositionIdxForOrderSide(INVERSE_MARKET_OPEN_SIDE),
     reduceOnly: true,
     orderLinkId: `qa-inverse-market-close-v3-${Date.now()}`,
     ...overrides,
@@ -180,6 +189,44 @@ export function buildCloseMarketOrderBody(
     orderLinkId: `qa-market-close-v3-${Date.now()}`,
     ...overrides,
   });
+}
+
+const CLOSE_LIMIT_SLIP = Number(process.env['QA_API_CLOSE_LIMIT_SLIP'] ?? '0.05');
+
+function formatCloseLimitPrice(price: number): string {
+  if (price >= 1) return price.toFixed(4);
+  if (price >= 0.1) return price.toFixed(4);
+  return price.toFixed(6);
+}
+
+/**
+ * testnet 薄深度时 IOC 市价 reduceOnly 易 EC_NoImmediateQtyToFill；
+ * 用标记价 ± slip 的限价 IOC 兜底，卖平多折价、买平空溢价。
+ */
+export function buildAggressiveCloseLimitBody(params: {
+  side: string;
+  qty: string;
+  positionIdx: number;
+  markPrice: number;
+}): Record<string, unknown> {
+  const slip = Number.isFinite(CLOSE_LIMIT_SLIP) && CLOSE_LIMIT_SLIP > 0 ? CLOSE_LIMIT_SLIP : 0.05;
+  const raw =
+    params.side === 'Sell'
+      ? params.markPrice * (1 - slip)
+      : params.markPrice * (1 + slip);
+  return {
+    category: LINEAR_CATEGORY,
+    symbol: ORDER_SYMBOL,
+    side: params.side,
+    orderType: 'Limit',
+    price: formatCloseLimitPrice(raw),
+    positionIdx: params.positionIdx,
+    qty: params.qty,
+    reduceOnly: true,
+    closeOnTrigger: false,
+    timeInForce: 'IOC',
+    orderLinkId: `qa-limit-close-v3-${Date.now()}`,
+  };
 }
 
 /** Testnet 业务入参：XRPUSDT 限价卖单 GTC */
@@ -265,11 +312,50 @@ export function pickPositionSize(row: Record<string, unknown>): number {
   return Number.isFinite(n) ? Math.abs(n) : 0;
 }
 
+/** 线性合约下单数量：避免 JS 浮点误差，兼容 XRP（整数/0.1）与 ETH（0.001） */
+export function normalizeLinearOrderQty(qty: number | string): string {
+  const n = typeof qty === 'string' ? parseFloat(qty) : qty;
+  if (!Number.isFinite(n) || n <= 0) return '0';
+  for (const decimals of [3, 2, 1, 0]) {
+    const factor = 10 ** decimals;
+    const rounded = Math.round(n * factor) / factor;
+    if (decimals === 0 || Math.abs(rounded - n) < 1e-8) {
+      if (decimals === 0) return String(rounded);
+      return rounded.toFixed(decimals).replace(/\.?0+$/, '');
+    }
+  }
+  return String(n);
+}
+
+export function pickCumExecQty(row: Record<string, unknown>): string {
+  const raw = row['cumExecQty'] ?? row['CumExecQty'];
+  if (raw == null || raw === '') return '0';
+  return normalizeLinearOrderQty(String(raw));
+}
+
+export function pickPositionIdx(row: Record<string, unknown>): number {
+  const raw = row['positionIdx'] ?? row['PositionIdx'];
+  const n = typeof raw === 'string' ? parseInt(raw, 10) : Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export function findPositionRow(
   list: Array<Record<string, unknown>>,
   symbol: string,
 ): Record<string, unknown> | undefined {
   return list.find((row) => String(row['symbol'] ?? row['Symbol'] ?? '') === symbol);
+}
+
+/** hedge 模式下同一 symbol 有多条仓位，须按 positionIdx 精确匹配 */
+export function findPositionRowByIdx(
+  list: Array<Record<string, unknown>>,
+  symbol: string,
+  positionIdx: number,
+): Record<string, unknown> | undefined {
+  return list.find((row) => {
+    if (String(row['symbol'] ?? row['Symbol'] ?? '') !== symbol) return false;
+    return pickPositionIdx(row) === positionIdx;
+  });
 }
 
 export function pickMarkPrice(row: Record<string, unknown>): number {
@@ -354,6 +440,7 @@ export function buildInverseTradingStopBody(
   return buildTradingStopBody(markPrice, positionSide, {
     category: INVERSE_CATEGORY,
     symbol: INVERSE_SYMBOL,
+    positionIdx: inversePositionIdxForOrderSide(positionSide || INVERSE_MARKET_OPEN_SIDE),
     ...overrides,
   }, INVERSE_MARKET_OPEN_SIDE);
 }
@@ -380,7 +467,7 @@ export function buildInverseClearTradingStopBody(
   return buildClearTradingStopBody({
     category: INVERSE_CATEGORY,
     symbol: INVERSE_SYMBOL,
-    positionIdx: positionIdxForOrderSide(INVERSE_MARKET_OPEN_SIDE),
+    positionIdx: inversePositionIdxForOrderSide(INVERSE_MARKET_OPEN_SIDE),
     ...overrides,
   });
 }

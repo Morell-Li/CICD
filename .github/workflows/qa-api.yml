@@ -52,8 +52,13 @@ jobs:
           QA_ENV: testnet
           QA_API_KEY: ${{ secrets.ZOOMEX_TESTNET_API_KEY }}
           QA_API_SECRET: ${{ secrets.ZOOMEX_TESTNET_API_SECRET }}
-          QA_API_POSITION_MODE: ${{ vars.QA_API_POSITION_MODE || 'oneway' }}
-          QA_API_MARKET_ORDER_QTY: ${{ vars.QA_API_MARKET_ORDER_QTY || '' }}
-          QA_API_ORDER_PRICE: ${{ vars.QA_API_ORDER_PRICE || '' }}
-          QA_API_ORDER_AMEND_PRICE: ${{ vars.QA_API_ORDER_AMEND_PRICE || '' }}
+          QA_API_POSITION_MODE: ${{ vars.QA_API_POSITION_MODE || 'hedge' }}
+          QA_API_INVERSE_POSITION_MODE: ${{ vars.QA_API_INVERSE_POSITION_MODE || 'oneway' }}
+          QA_API_ORDER_SYMBOL: ${{ vars.QA_API_ORDER_SYMBOL || 'ETHUSDT' }}
+          QA_API_ORDER_QTY: ${{ vars.QA_API_ORDER_QTY || '0.01' }}
+          QA_API_MARKET_ORDER_QTY: ${{ vars.QA_API_MARKET_ORDER_QTY || '0.01' }}
+          QA_API_ORDER_PRICE: ${{ vars.QA_API_ORDER_PRICE || '5000' }}
+          QA_API_ORDER_AMEND_PRICE: ${{ vars.QA_API_ORDER_AMEND_PRICE || '4999' }}
+          QA_API_SPOT_LIMIT_PRICE: ${{ vars.QA_API_SPOT_LIMIT_PRICE || '100' }}
+          QA_API_SPOT_LIMIT_AMEND_PRICE: ${{ vars.QA_API_SPOT_LIMIT_AMEND_PRICE || '101' }}
         run: pnpm exec playwright test --config=qa-e2e/playwright.config.ts --project=api "qa-e2e/tests/api/${{ matrix.spec }}"

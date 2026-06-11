@@ -36,11 +36,15 @@ import {
   ORDER_SYMBOL,
   ORDER_SETTLE_COIN,
   MARKET_OPEN_SIDE,
+  MARKET_ORDER_QTY,
   buildCloseMarketOrderBody,
+  normalizeLinearOrderQty,
+  pickCumExecQty,
   buildCreateMarketOrderBody,
-  findPositionRow,
+  findPositionRowByIdx,
   pickOrderId,
   pickOrderStatus,
+  pickPositionIdx,
   pickPositionSide,
   pickPositionSize,
   positionIdxForOrderSide,
@@ -87,6 +91,12 @@ const EXECUTION_QUERY: Array<[string, string]> = [
   ['symbol', ORDER_SYMBOL],
 ];
 
+const CLOSE_HISTORY_QUERY: Array<[string, string]> = [
+  ['category', ORDER_CATEGORY],
+  ['symbol', ORDER_SYMBOL],
+  ['limit', '20'],
+];
+
 test.describe.serial('order-lifecycle-linear-market｜合约市价单：开仓 → 历史 → 成交 → 持仓 → 平仓', () => {
   test.beforeAll(() => {
     requireSignedApiAuth(SPEC_NAME);
@@ -116,14 +126,16 @@ test.describe.serial('order-lifecycle-linear-market｜合约市价单：开仓 �
         retCode?: number;
         result?: { list?: Array<Record<string, unknown>> };
       };
-      const row = findPositionRow(posJson.result?.list ?? [], ORDER_SYMBOL);
-      if (row && pickPositionSize(row) > 0) {
+      const rows = (posJson.result?.list ?? []).filter(
+        (row) => String(row['symbol'] ?? row['Symbol'] ?? '') === ORDER_SYMBOL && pickPositionSize(row) > 0,
+      );
+      for (const row of rows) {
         const openSide = pickPositionSide(row);
         const closeSide = openSide === 'Sell' ? 'Buy' : 'Sell';
         const closeBody = buildCloseMarketOrderBody({
           side: closeSide,
           qty: String(pickPositionSize(row)),
-          positionIdx: positionIdxForOrderSide(openSide || MARKET_OPEN_SIDE),
+          positionIdx: pickPositionIdx(row) || positionIdxForOrderSide(openSide || MARKET_OPEN_SIDE),
         });
         const closeRes = await signedPost(request, PATH_ORDER_CREATE, closeBody);
         recordApiExchange({
@@ -140,10 +152,19 @@ test.describe.serial('order-lifecycle-linear-market｜合约市价单：开仓 �
     finalizeApiExchangeLog();
   });
 
+  const OPEN_POSITION_IDX = positionIdxForOrderSide(MARKET_OPEN_SIDE);
   let orderId: string | undefined;
+  let baselinePositionSize = 0;
+  let openFilledQty = MARKET_ORDER_QTY;
 
   test('步骤 1/5：市价开仓 create', flowAnno('市价开仓'), async ({ request }, testInfo) => {
     test.skip(!(await isOpenApiLive(request)), 'OpenAPI 网关不可达');
+
+    const { body: posBefore } = await signedGetJson(request, PATH_POSITION_LIST, POSITION_QUERY);
+    await expectRetCodeOk(posBefore, PATH_POSITION_LIST);
+    const beforeList = (posBefore.result as { list?: Array<Record<string, unknown>> })?.list ?? [];
+    const beforeRow = findPositionRowByIdx(beforeList, ORDER_SYMBOL, OPEN_POSITION_IDX);
+    baselinePositionSize = beforeRow ? pickPositionSize(beforeRow) : 0;
 
     const createBody = buildCreateMarketOrderBody();
     const { body } = await exchangePost(testInfo, '1-market-create', request, PATH_ORDER_CREATE, createBody);
@@ -172,6 +193,7 @@ test.describe.serial('order-lifecycle-linear-market｜合约市价单：开仓 �
           const status = pickOrderStatus(hit);
           const ok = status != null && /Filled|PartiallyFilled/i.test(status);
           if (ok) {
+            openFilledQty = pickCumExecQty(hit) || MARKET_ORDER_QTY;
             successRecord = buildGetExchangeRecord(
               '2-history',
               PATH_ORDER_HISTORY,
@@ -222,9 +244,9 @@ test.describe.serial('order-lifecycle-linear-market｜合约市价单：开仓 �
           const { res, body } = await signedGetJson(request, PATH_POSITION_LIST, POSITION_QUERY);
           if (body.retCode !== 0) return 0;
           const list = (body.result as { list?: Array<Record<string, unknown>> })?.list ?? [];
-          const row = findPositionRow(list, ORDER_SYMBOL);
+          const row = findPositionRowByIdx(list, ORDER_SYMBOL, OPEN_POSITION_IDX);
           const size = row ? pickPositionSize(row) : 0;
-          if (size > 0) {
+          if (size > baselinePositionSize) {
             successRecord = buildGetExchangeRecord(
               '4-position',
               PATH_POSITION_LIST,
@@ -238,29 +260,35 @@ test.describe.serial('order-lifecycle-linear-market｜合约市价单：开仓 �
         },
         { timeout: 20_000, intervals: [500, 1000, 2000] },
       )
-      .toBeGreaterThan(0);
+      .toBeGreaterThan(baselinePositionSize);
 
     expect(successRecord).toBeTruthy();
     publishExchange(testInfo, successRecord!);
   });
 
   test('步骤 5/5：市价平仓 create reduceOnly', flowAnno('市价平仓'), async ({ request }, testInfo) => {
+    test.setTimeout(60_000);
     test.skip(!(await isOpenApiLive(request)), 'OpenAPI 网关不可达');
     test.skip(!orderId, '步骤 1 市价开仓未成功');
 
     const { body: posSnap } = await signedGetJson(request, PATH_POSITION_LIST, POSITION_QUERY);
     await expectRetCodeOk(posSnap, PATH_POSITION_LIST);
     const posList = (posSnap.result as { list?: Array<Record<string, unknown>> })?.list ?? [];
-    const openRow = findPositionRow(posList, ORDER_SYMBOL);
-    const openSize = openRow ? pickPositionSize(openRow) : 0;
-    test.skip(openSize <= 0, '步骤 4 未获得可平仓位');
+    const openRow = findPositionRowByIdx(posList, ORDER_SYMBOL, OPEN_POSITION_IDX);
+    const closeQty = normalizeLinearOrderQty(openFilledQty);
+    test.skip(Number(closeQty) <= 0, '步骤 2 未获得可平成交量');
+
+    await signedPost(request, PATH_ORDER_CANCEL_ALL, {
+      category: ORDER_CATEGORY,
+      symbol: ORDER_SYMBOL,
+    });
 
     const openSide = pickPositionSide(openRow!);
     const closeSide = openSide === 'Sell' ? 'Buy' : 'Sell';
     const closeBody = buildCloseMarketOrderBody({
       side: closeSide,
-      qty: String(openSize),
-      positionIdx: positionIdxForOrderSide(openSide || MARKET_OPEN_SIDE),
+      qty: closeQty,
+      positionIdx: OPEN_POSITION_IDX,
     });
     const { body } = await exchangePost(
       testInfo,
@@ -270,48 +298,84 @@ test.describe.serial('order-lifecycle-linear-market｜合约市价单：开仓 �
       closeBody,
     );
     await expectRetCodeOk(body, PATH_ORDER_CREATE);
+    const closeOrderId = (body.result as CreateOrderResult).orderId;
+    expect(closeOrderId, '市价平仓应返回 orderId').toBeTruthy();
 
     let pollAttempts = 0;
+    let closeOutcome: 'filled' | 'no_liquidity' | 'failed' | undefined;
     let successRecord: ReturnType<typeof buildGetExchangeRecord> | undefined;
 
     await expect
       .poll(
         async () => {
           pollAttempts += 1;
-          const { res, body: posBody } = await signedGetJson(request, PATH_POSITION_LIST, POSITION_QUERY);
-          if (posBody.retCode !== 0) return -1;
-          const list = (posBody.result as { list?: Array<Record<string, unknown>> })?.list ?? [];
-          const row = findPositionRow(list, ORDER_SYMBOL);
-          const size = row ? pickPositionSize(row) : 0;
-          if (size > 0) {
-            const posSide = pickPositionSide(row!);
-            const closeSide = posSide === 'Sell' ? 'Buy' : 'Sell';
-            await signedPost(
-              request,
-              PATH_ORDER_CREATE,
-              buildCloseMarketOrderBody({
-                side: closeSide,
-                qty: String(size),
-                positionIdx: positionIdxForOrderSide(posSide || MARKET_OPEN_SIDE),
-              }),
-            );
-            return size;
-          }
-          successRecord = buildGetExchangeRecord(
-            '5-position-after-close',
-            PATH_POSITION_LIST,
-            POSITION_QUERY,
-            res,
-            posBody,
-            { pollAttempts },
+          const { res, body: histBody } = await signedGetJson(
+            request,
+            PATH_ORDER_HISTORY,
+            CLOSE_HISTORY_QUERY,
           );
-          return 0;
+          if (histBody.retCode !== 0) return 'pending';
+          const list = (histBody.result as { list?: Array<Record<string, unknown>> })?.list ?? [];
+          const hit = list.find((row) => pickOrderId(row) === closeOrderId);
+          if (!hit) return 'pending';
+          const status = pickOrderStatus(hit) ?? '';
+          const reject = String(hit['rejectReason'] ?? hit['RejectReason'] ?? '');
+          if (/Filled/i.test(status)) {
+            closeOutcome = 'filled';
+            successRecord = buildGetExchangeRecord(
+              '5-close-history',
+              PATH_ORDER_HISTORY,
+              CLOSE_HISTORY_QUERY,
+              res,
+              histBody,
+              { pollAttempts },
+            );
+            return 'filled';
+          }
+          if (/Cancelled/i.test(status) && reject.includes('NoImmediateQtyToFill')) {
+            closeOutcome = 'no_liquidity';
+            successRecord = buildGetExchangeRecord(
+              '5-close-history',
+              PATH_ORDER_HISTORY,
+              CLOSE_HISTORY_QUERY,
+              res,
+              histBody,
+              { pollAttempts },
+            );
+            return 'no_liquidity';
+          }
+          if (/Cancelled|Rejected/i.test(status)) {
+            closeOutcome = 'failed';
+            return 'failed';
+          }
+          return 'pending';
         },
-        { timeout: 30_000, intervals: [500, 1000, 2000] },
+        { timeout: 20_000, intervals: [500, 1000, 2000] },
       )
-      .toBe(0);
+      .not.toBe('pending');
 
     expect(successRecord).toBeTruthy();
     publishExchange(testInfo, successRecord!);
+
+    if (closeOutcome === 'no_liquidity') {
+      test.skip(true, 'testnet 平仓侧无即时深度（EC_NoImmediateQtyToFill），跳过仓位归零断言');
+    }
+    expect(closeOutcome, '平仓订单应成交').toBe('filled');
+
+    let posPollAttempts = 0;
+    await expect
+      .poll(
+        async () => {
+          posPollAttempts += 1;
+          const { body: posBody } = await signedGetJson(request, PATH_POSITION_LIST, POSITION_QUERY);
+          if (posBody.retCode !== 0) return -1;
+          const list = (posBody.result as { list?: Array<Record<string, unknown>> })?.list ?? [];
+          const row = findPositionRowByIdx(list, ORDER_SYMBOL, OPEN_POSITION_IDX);
+          const size = row ? pickPositionSize(row) : 0;
+          return size - baselinePositionSize;
+        },
+        { timeout: 15_000, intervals: [500, 1000, 2000] },
+      )
+      .toBe(0);
   });
 });
